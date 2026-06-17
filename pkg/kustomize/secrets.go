@@ -294,6 +294,9 @@ func ContainsComponentConfig(
 	if err != nil {
 		return false, err
 	}
+	if quayConfig == nil {
+		return false, nil
+	}
 
 	// FIXME: Only checking for the existance of a single field
 	for _, field := range fields {

@@ -618,10 +618,16 @@ func Inflate(
 	// Each managed component brings its own generated `config.yaml` fields which are
 	// accumulated under the key <component>.config.yaml and then added to the base `Secret`.
 	componentConfigFiles := bundle.DeepCopy().Data
+	if componentConfigFiles == nil {
+		componentConfigFiles = make(map[string][]byte)
+	}
 
 	var parsedUserConfig map[string]interface{}
 	if err := yaml.Unmarshal(bundle.Data["config.yaml"], &parsedUserConfig); err != nil {
 		return nil, err
+	}
+	if parsedUserConfig == nil {
+		parsedUserConfig = make(map[string]interface{})
 	}
 
 	// Generate or pull out the `SECRET_KEY` and `DATABASE_SECRET_KEY`. Since these must be

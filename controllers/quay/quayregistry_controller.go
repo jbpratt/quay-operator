@@ -771,6 +771,20 @@ func (r *QuayRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return r.Requeue, nil
 	}
 
+	if _, ok := cbundle.Data["config.yaml"]; !ok {
+		return r.reconcileWithCondition(
+			ctx,
+			&quay,
+			v1.ConditionTypeRolloutBlocked,
+			metav1.ConditionTrue,
+			v1.ConditionReasonConfigInvalid,
+			fmt.Sprintf(
+				"configBundleSecret %q does not contain a config.yaml key",
+				quay.Spec.ConfigBundleSecret,
+			),
+		)
+	}
+
 	var usercfg map[string]interface{}
 	if err = yaml.Unmarshal(cbundle.Data["config.yaml"], &usercfg); err != nil {
 		return r.reconcileWithCondition(
@@ -781,6 +795,9 @@ func (r *QuayRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			v1.ConditionReasonConfigInvalid,
 			err.Error(),
 		)
+	}
+	if usercfg == nil {
+		usercfg = make(map[string]interface{})
 	}
 
 	updatedQuay.Status.Conditions = v1.RemoveCondition(

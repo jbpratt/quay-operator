@@ -739,6 +739,62 @@ var inflateTests = []struct {
 	},
 }
 
+func TestInflateEmptyConfigYAML(t *testing.T) {
+	log := testlogr.NewTestLogger(t)
+
+	tests := []struct {
+		name         string
+		configBundle *corev1.Secret
+	}{
+		{
+			name: "EmptyConfigYAML",
+			configBundle: &corev1.Secret{
+				Data: map[string][]byte{
+					"config.yaml": {},
+				},
+			},
+		},
+		{
+			name: "MissingConfigYAMLKey",
+			configBundle: &corev1.Secret{
+				Data: map[string][]byte{},
+			},
+		},
+		{
+			name:         "NilData",
+			configBundle: &corev1.Secret{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := quaycontext.QuayRegistryContext{
+				SupportsObjectStorage:    true,
+				ObjectStorageInitialized: true,
+			}
+			quay := &v1.QuayRegistry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test",
+				},
+				Spec: v1.QuayRegistrySpec{
+					Components: []v1.Component{
+						{Kind: "postgres", Managed: true},
+						{Kind: "clair", Managed: true},
+						{Kind: "clairpostgres", Managed: true},
+						{Kind: "redis", Managed: true},
+						{Kind: "objectstorage", Managed: true},
+						{Kind: "mirror", Managed: true},
+					},
+				},
+			}
+
+			pieces, err := Inflate(&ctx, quay, tt.configBundle, log, false)
+			assert.NoError(t, err, tt.name)
+			assert.NotNil(t, pieces, tt.name)
+		})
+	}
+}
+
 func TestInflate(t *testing.T) {
 	assert := assert.New(t)
 

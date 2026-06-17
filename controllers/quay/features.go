@@ -254,6 +254,9 @@ func parseServerHostname(
 	if err := yaml.Unmarshal(bundle.Data["config.yaml"], &config); err != nil {
 		return fmt.Errorf("unable to parse config.yaml: %w", err)
 	}
+	if config == nil {
+		config = make(map[string]interface{})
+	}
 
 	fieldGroup, err := hostsettings.NewHostSettingsFieldGroup(config)
 	if err != nil {
