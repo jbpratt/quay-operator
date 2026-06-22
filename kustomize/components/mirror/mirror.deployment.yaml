@@ -123,6 +123,9 @@ spec:
                 secretKeyRef:
                   name: quay-proxy-config
                   key: NO_PROXY
+          ports:
+            - containerPort: 9091
+              protocol: TCP
           # TODO: Determine if we need to set resource requirements
           volumeMounts:
             - name: config
