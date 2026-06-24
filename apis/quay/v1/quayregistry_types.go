@@ -995,7 +995,7 @@ func GetLabelsOverrideForComponent(quay *QuayRegistry, kind ComponentKind) map[s
 
 // ExceptionLabel checks if attempt to override label affects exceptional labels
 func ExceptionLabel(override string) bool {
-	for _, label := range []string{"quay-component", "app", "quay-operator/quayregistry"} {
+	for _, label := range []string{"quay-component", "app", "quay-operator/quayregistry", "quay-monitor"} {
 		if override != label {
 			continue
 		}

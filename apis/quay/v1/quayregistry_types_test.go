@@ -1044,6 +1044,18 @@ func TestGetTLSOverrideForComponent(t *testing.T) {
 	}
 }
 
+func TestExceptionLabel(t *testing.T) {
+	protected := []string{"quay-component", "app", "quay-operator/quayregistry", "quay-monitor"}
+	for _, label := range protected {
+		assert.True(t, ExceptionLabel(label), "expected %q to be protected from overrides", label)
+	}
+
+	allowed := []string{"custom-label", "team", "environment", "quay-monitoring"}
+	for _, label := range allowed {
+		assert.False(t, ExceptionLabel(label), "expected %q to be allowed as an override", label)
+	}
+}
+
 func resourcePtr(s string) *resource.Quantity {
 	q := resource.MustParse(s)
 	return &q

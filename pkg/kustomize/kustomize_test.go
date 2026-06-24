@@ -14,6 +14,7 @@ import (
 	autoscaling "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -329,6 +330,74 @@ func TestKustomizationFor(t *testing.T) {
 	}
 }
 
+func TestMonitoringLabelChain(t *testing.T) {
+	log := testlogr.NewTestLogger(t)
+
+	ctx := quaycontext.QuayRegistryContext{
+		SupportsObjectStorage:    true,
+		ObjectStorageInitialized: true,
+		SupportsMonitoring:       true,
+	}
+	quay := &v1.QuayRegistry{
+		ObjectMeta: metav1.ObjectMeta{Name: "test"},
+		Spec: v1.QuayRegistrySpec{
+			Components: []v1.Component{
+				{Kind: "postgres", Managed: true},
+				{Kind: "redis", Managed: true},
+				{Kind: "objectstorage", Managed: true},
+				{Kind: "mirror", Managed: true},
+				{Kind: "monitoring", Managed: true},
+			},
+		},
+	}
+	configBundle := &corev1.Secret{
+		Data: map[string][]byte{
+			"config.yaml": encode(map[string]interface{}{"SERVER_HOSTNAME": "quay.io"}),
+		},
+	}
+
+	pieces, err := Inflate(&ctx, quay, configBundle, log, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, pieces)
+
+	var (
+		metricsService *corev1.Service
+		appDep         *appsv1.Deployment
+		mirrorDep      *appsv1.Deployment
+	)
+
+	for _, obj := range pieces {
+		accessor, _ := meta.Accessor(obj)
+		name := accessor.GetName()
+
+		switch dep := obj.(type) {
+		case *corev1.Service:
+			if strings.Contains(name, "quay-metrics") {
+				metricsService = dep
+			}
+		case *appsv1.Deployment:
+			if strings.Contains(name, "quay-app") && !strings.Contains(name, "upgrade") {
+				appDep = dep
+			}
+			if strings.Contains(name, "quay-mirror") {
+				mirrorDep = dep
+			}
+		}
+	}
+
+	require.NotNil(t, metricsService, "quay-metrics Service should be present")
+	assert.Equal(t, "true", metricsService.Spec.Selector["quay-monitor"],
+		"quay-metrics Service selector should use quay-monitor label")
+
+	require.NotNil(t, appDep, "quay-app Deployment should be present")
+	assert.Equal(t, "true", appDep.Spec.Template.Labels["quay-monitor"],
+		"quay-app pod template should have quay-monitor label")
+
+	require.NotNil(t, mirrorDep, "quay-mirror Deployment should be present")
+	assert.Equal(t, "true", mirrorDep.Spec.Template.Labels["quay-monitor"],
+		"quay-mirror pod template should have quay-monitor label")
+}
+
 func TestFlattenSecret(t *testing.T) {
 	assert := assert.New(t)
 
@@ -427,6 +496,26 @@ var quayComponents = map[string][]client.Object{
 	"clairpostgres": {
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "clairpostgres-config-secret"}},
 	},
+	"monitoring": {
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "quay-metrics"}},
+		&rbac.Role{ObjectMeta: metav1.ObjectMeta{Name: "quay-metrics"}},
+		&rbac.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "quay-metrics"}},
+		func() *unstructured.Unstructured {
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor"})
+			obj.SetName("quay-metrics-monitor")
+			return obj
+		}(),
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "quay-grafana-dashboard"}},
+		&rbac.Role{ObjectMeta: metav1.ObjectMeta{Name: "quay-alerts"}},
+		&rbac.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: "quay-alerts"}},
+		func() *unstructured.Unstructured {
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "PrometheusRule"})
+			obj.SetName("quay-alerts")
+			return obj
+		}(),
+	},
 	"job": {
 		&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "quay-app-upgrade"}},
 	},
@@ -462,19 +551,21 @@ var inflateTests = []struct {
 					{Kind: "objectstorage", Managed: true},
 					{Kind: "mirror", Managed: true},
 					{Kind: "horizontalpodautoscaler", Managed: true},
+					{Kind: "monitoring", Managed: true},
 				},
 			},
 		},
 		ctx: quaycontext.QuayRegistryContext{
 			SupportsObjectStorage:    true,
 			ObjectStorageInitialized: true,
+			SupportsMonitoring:       true,
 		},
 		configBundle: &corev1.Secret{
 			Data: map[string][]byte{
 				"config.yaml": encode(map[string]interface{}{"SERVER_HOSTNAME": "quay.io"}),
 			},
 		},
-		expected:    withComponents([]string{"job", "quay", "clair", "postgres", "redis", "objectstorage", "mirror", "horizontalpodautoscaler", "clairpostgres"}),
+		expected:    withComponents([]string{"job", "quay", "clair", "postgres", "redis", "objectstorage", "mirror", "horizontalpodautoscaler", "clairpostgres", "monitoring"}),
 		expectedErr: nil,
 	},
 	{
